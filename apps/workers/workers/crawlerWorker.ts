@@ -70,6 +70,7 @@ import {
 import { getRateLimitClient } from "@karakeep/shared/ratelimiting";
 import { tryCatch } from "@karakeep/shared/tryCatch";
 import { BookmarkTypes } from "@karakeep/shared/types/bookmarks";
+import { trackBookmarkChanges } from "@karakeep/trpc/models/itemHistory";
 import { WebhooksService } from "@karakeep/trpc/models/webhooks.service";
 
 import type { CrawlContext, Crawler, UrlProbeResult } from "./crawler/common";
@@ -795,21 +796,47 @@ const crawlAndParseUrl = traced(
     // Phase 1: Write metadata immediately for fast user feedback.
     // Content and asset storage happen later and can be slow (banner
     // image download, screenshot/pdf upload, etc.).
-    await db
-      .update(bookmarkLinks)
-      .set({
-        title: meta.title,
-        description: meta.description,
-        // Don't store data URIs as they're not valid URLs and are usually quite large
-        imageUrl: meta.image?.startsWith("data:") ? null : meta.image,
-        favicon: meta.logo,
-        crawlStatusCode: statusCode,
-        author: meta.author,
-        publisher: meta.publisher,
-        datePublished: parseDate(meta.datePublished),
-        dateModified: parseDate(meta.dateModified),
-      })
-      .where(eq(bookmarkLinks.id, bookmarkId));
+    db.transaction(
+      (tx) => {
+        const writeMetadata = () =>
+          tx
+            .update(bookmarkLinks)
+            .set({
+              title: meta.title,
+              description: meta.description,
+              // Don't store data URIs as they're not valid URLs and are usually quite large
+              imageUrl: meta.image?.startsWith("data:") ? null : meta.image,
+              favicon: meta.logo,
+              crawlStatusCode: statusCode,
+              author: meta.author,
+              publisher: meta.publisher,
+              datePublished: parseDate(meta.datePublished),
+              dateModified: parseDate(meta.dateModified),
+            })
+            .where(eq(bookmarkLinks.id, bookmarkId))
+            .run();
+
+        // On a first crawl the probe may have filled these in moments ago, so
+        // differences aren't edits. Only a recrawl goes into the history. The
+        // probe itself only fills empty fields, so it never needs recording.
+        const link = tx
+          .select({ crawledAt: bookmarkLinks.crawledAt })
+          .from(bookmarkLinks)
+          .where(eq(bookmarkLinks.id, bookmarkId))
+          .all()[0];
+        if (!link?.crawledAt) {
+          writeMetadata();
+          return;
+        }
+        trackBookmarkChanges(
+          tx,
+          bookmarkId,
+          { source: "crawler", changedBy: null, skipInitialPopulation: true },
+          writeMetadata,
+        );
+      },
+      { behavior: "immediate" },
+    );
 
     let readableContent = parsedReadableContent;
 

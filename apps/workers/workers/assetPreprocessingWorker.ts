@@ -29,6 +29,7 @@ import {
   EnqueueOptions,
   getQueueClient,
 } from "@karakeep/shared/queueing";
+import { trackBookmarkChanges } from "@karakeep/trpc/models/itemHistory";
 
 import type {
   AssetJob,
@@ -176,6 +177,29 @@ async function readImageTextWithLLM(
   return extractedText;
 }
 
+/** Records a change only when it replaces text extracted earlier. */
+function saveExtractedContent(
+  bookmarkId: string,
+  values: { content: string; metadata: string | null },
+) {
+  db.transaction(
+    (tx) => {
+      trackBookmarkChanges(
+        tx,
+        bookmarkId,
+        { source: "extraction", changedBy: null, skipInitialPopulation: true },
+        () =>
+          tx
+            .update(bookmarkAssets)
+            .set(values)
+            .where(eq(bookmarkAssets.id, bookmarkId))
+            .run(),
+      );
+    },
+    { behavior: "immediate" },
+  );
+}
+
 async function extractAndSaveImageText(
   job: AssetJob,
   asset: Buffer,
@@ -232,13 +256,7 @@ async function extractAndSaveImageText(
   logger.info(
     `[assetPreprocessing][${jobId}] Extracted ${imageText.length} characters from image.`,
   );
-  await db
-    .update(bookmarkAssets)
-    .set({
-      content: imageText,
-      metadata: null,
-    })
-    .where(eq(bookmarkAssets.id, bookmark.id));
+  saveExtractedContent(bookmark.id, { content: imageText, metadata: null });
   return true;
 }
 
@@ -307,13 +325,10 @@ async function savePDFText(
   logger.info(
     `[assetPreprocessing][${jobId}] Extracted ${text.length} characters from pdf.`,
   );
-  await db
-    .update(bookmarkAssets)
-    .set({
-      content: text,
-      metadata: metadata ? JSON.stringify(metadata) : null,
-    })
-    .where(eq(bookmarkAssets.id, bookmark.id));
+  saveExtractedContent(bookmark.id, {
+    content: text,
+    metadata: metadata ? JSON.stringify(metadata) : null,
+  });
   return true;
 }
 

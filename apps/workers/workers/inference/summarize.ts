@@ -16,6 +16,7 @@ import { DequeuedJob } from "@karakeep/shared/queueing";
 import { buildSummarizationInput } from "@karakeep/shared/summarization";
 import { BookmarkTypes } from "@karakeep/shared/types/bookmarks";
 import { Bookmark } from "@karakeep/trpc/models/bookmarks";
+import { trackBookmarkChanges } from "@karakeep/trpc/models/itemHistory";
 
 import { getBookmarkDomain } from "../../network";
 
@@ -180,13 +181,23 @@ export async function runSummarization(
     `[inference][${jobId}] Generated summary for bookmark "${bookmarkId}" using ${summaryResult.totalTokens} tokens.`,
   );
 
-  await db
-    .update(bookmarks)
-    .set({
-      summary: summaryResult.response,
-      modifiedAt: new Date(),
-    })
-    .where(eq(bookmarks.id, bookmarkId));
+  const summary = summaryResult.response;
+  db.transaction(
+    (tx) => {
+      trackBookmarkChanges(
+        tx,
+        bookmarkId,
+        { source: "ai", changedBy: null },
+        () =>
+          tx
+            .update(bookmarks)
+            .set({ summary, modifiedAt: new Date() })
+            .where(eq(bookmarks.id, bookmarkId))
+            .run(),
+      );
+    },
+    { behavior: "immediate" },
+  );
 
   await triggerSearchReindex(bookmarkId, {
     priority: job.priority,
