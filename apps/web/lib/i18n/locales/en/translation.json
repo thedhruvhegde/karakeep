@@ -1481,6 +1481,36 @@
         "avatar": "Avatar",
         "unknown": "Attachment"
       }
+    },
+    "history": {
+      "title": "History",
+      "loading": "Loading history…",
+      "failed": "Couldn't load history",
+      "no_changes": "No changes yet",
+      "load_more": "Load older changes",
+      "empty_value": "(empty)",
+      "show_more": "Show more",
+      "show_less": "Show less",
+      "by_ai": "AI",
+      "by_rule": "Rule ({{name}})",
+      "deleted_user": "Deleted user",
+      "fields": {
+        "title": "Title",
+        "url": "URL",
+        "description": "Description",
+        "author": "Author",
+        "publisher": "Publisher",
+        "datePublished": "Published date",
+        "dateModified": "Modified date",
+        "createdAt": "Saved date",
+        "text": "Text",
+        "assetContent": "Asset text",
+        "summary": "Summary",
+        "tags": "Tags",
+        "note": "Note",
+        "favourited": "Favourite",
+        "archived": "Archived"
+      }
     }
   },
   "editor": {

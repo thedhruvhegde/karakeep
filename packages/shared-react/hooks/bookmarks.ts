@@ -93,6 +93,9 @@ export function useDeleteBookmark(
         queryClient.removeQueries(
           api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
         );
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         scheduleInvalidateQueries(queryClient, api.lists.stats.pathFilter());
         return opts?.onSuccess?.(res, req, meta, context);
       },
@@ -122,6 +125,9 @@ export function useUpdateBookmark(
         queryClient.invalidateQueries(
           api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
         );
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         scheduleInvalidateQueries(queryClient, api.lists.stats.pathFilter());
         return opts?.onSuccess?.(res, req, meta, context);
       },
@@ -147,6 +153,9 @@ export function useSummarizeBookmark(
         queryClient.invalidateQueries(
           api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
         );
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         return opts?.onSuccess?.(res, req, meta, context);
       },
     }),
@@ -166,6 +175,9 @@ export function useRecrawlBookmark(
       onSuccess: (res, req, meta, context) => {
         queryClient.invalidateQueries(
           api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
+        );
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
         );
         return opts?.onSuccess?.(res, req, meta, context);
       },
@@ -202,6 +214,9 @@ export function useUpdateBookmarkTags(
       onSuccess: (res, req, meta, context) => {
         queryClient.invalidateQueries(
           api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
+        );
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
         );
 
         [...res.attached, ...res.detached].forEach((id) => {

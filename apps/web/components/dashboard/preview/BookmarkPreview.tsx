@@ -58,6 +58,7 @@ import AttachmentBox from "./AttachmentBox";
 import BookmarkLoadError, { retryBookmarkQuery } from "./BookmarkLoadError";
 import { BookmarkListsField } from "./BookmarkListsField";
 import HighlightsBox from "./HighlightsBox";
+import HistoryBox from "./HistoryBox";
 import { ICON_CONTROL_CLASS, IconTooltip } from "./IconControl";
 import LinkContentSection, {
   SECTIONS_WITH_TITLE,
@@ -533,6 +534,7 @@ export default function BookmarkPreview({
       <HighlightsBox bookmarkId={bookmark.id} readOnly={!isOwner} />
       <Separator />
       <AttachmentBox bookmark={bookmark} readOnly={!isOwner} />
+      <HistoryBox bookmarkId={bookmark.id} modifiedAt={bookmark.modifiedAt} />
     </div>
   );
 

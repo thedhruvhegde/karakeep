@@ -483,6 +483,50 @@ export const userReadingProgress = sqliteTable(
   ],
 );
 
+// Field-level change history for items (currently only bookmarks). `itemId`
+// has no foreign key because it's meant to point at different item types, so
+// rows are deleted explicitly when the item is deleted (see Bookmark.delete).
+export const itemHistory = sqliteTable(
+  "itemHistory",
+  {
+    id: text("id")
+      .notNull()
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    itemType: text("itemType", { enum: ["bookmark"] }).notNull(),
+    itemId: text("itemId").notNull(),
+    // The owner of the item. History goes away with the owner's account.
+    ownerId: text("ownerId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Groups all the fields changed by a single save.
+    changeId: text("changeId").notNull(),
+    fieldName: text("fieldName").notNull(),
+    // JSON-encoded so null, "", booleans, dates and tag lists stay distinct.
+    oldValue: text("oldValue").notNull(),
+    newValue: text("newValue").notNull(),
+    // Null for automated (AI) changes, or once the user who made the change is
+    // deleted.
+    changedBy: text("changedBy").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    source: text("source", { enum: ["user", "ai", "rule"] })
+      .notNull()
+      .default("user"),
+    changedAt: integer("changedAt", { mode: "timestamp_ms" }).notNull(),
+  },
+  (tb) => [
+    index("itemHistory_item_changedAt_idx").on(
+      tb.itemType,
+      tb.itemId,
+      tb.changedAt,
+      tb.id,
+    ),
+    index("itemHistory_ownerId_idx").on(tb.ownerId),
+    index("itemHistory_changedBy_idx").on(tb.changedBy),
+  ],
+);
+
 export const bookmarkTexts = sqliteTable("bookmarkTexts", {
   id: text("id")
     .notNull()
@@ -1416,3 +1460,10 @@ export const userReadingProgressRelations = relations(
     }),
   }),
 );
+
+export const itemHistoryRelations = relations(itemHistory, ({ one }) => ({
+  changedByUser: one(users, {
+    fields: [itemHistory.changedBy],
+    references: [users.id],
+  }),
+}));

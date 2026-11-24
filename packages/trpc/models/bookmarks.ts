@@ -65,6 +65,7 @@ import { AuthedContext } from "..";
 import { mapDBAssetTypeToUserType } from "../lib/attachments";
 import { getPreferredLinkPreview } from "../lib/linkPreview";
 import { Asset } from "./assets";
+import { ItemHistory } from "./itemHistory";
 import { List } from "./lists";
 
 async function dummyDrizzleReturnType() {
@@ -1052,14 +1053,20 @@ export class Bookmark extends BareBookmark {
 
   async delete() {
     this.ensureOwnership();
-    const deleted = await this.ctx.db
-      .delete(bookmarks)
-      .where(
-        and(
-          eq(bookmarks.userId, this.ctx.user.id),
-          eq(bookmarks.id, this.bookmark.id),
-        ),
-      );
+    // History rows reference the bookmark by a generic item id without a
+    // foreign key, so they're removed explicitly, atomically with the bookmark.
+    const deleted = await this.ctx.db.transaction((tx) => {
+      ItemHistory.deleteForBookmark(tx, this.bookmark.id);
+      return tx
+        .delete(bookmarks)
+        .where(
+          and(
+            eq(bookmarks.userId, this.ctx.user.id),
+            eq(bookmarks.id, this.bookmark.id),
+          ),
+        )
+        .run();
+    });
 
     await SearchIndexingQueue.enqueue(
       {

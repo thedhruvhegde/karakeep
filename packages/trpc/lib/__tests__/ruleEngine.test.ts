@@ -8,6 +8,7 @@ import {
   bookmarks,
   bookmarksInLists,
   bookmarkTags,
+  itemHistory,
   rssFeedImportsTable,
   rssFeedsTable,
   ruleEngineActionsTable as ruleActions,
@@ -533,6 +534,37 @@ describe("RuleEngine", () => {
         ),
       });
       expect(tagLink).toBeDefined();
+    });
+
+    it("records rule actions in the bookmark's change history", async () => {
+      await engine.executeAction({ type: "addTag", tagId: tagId2 });
+      await engine.executeAction({ type: "favouriteBookmark" });
+      const rows = await db
+        .select()
+        .from(itemHistory)
+        .where(eq(itemHistory.itemId, bookmarkId));
+      expect(rows.map((r) => r.fieldName).sort()).toEqual([
+        "favourited",
+        "tags",
+      ]);
+      for (const row of rows) {
+        expect(row.source).toBe("rule");
+        expect(row.changedBy).toBe(userId);
+        expect(row.ownerId).toBe(userId);
+      }
+      const fav = rows.find((r) => r.fieldName === "favourited")!;
+      expect(JSON.parse(fav.oldValue)).toBe(false);
+      expect(JSON.parse(fav.newValue)).toBe(true);
+    });
+
+    it("rule actions that change nothing record no history", async () => {
+      // tagId1 is already attached to the bookmark.
+      await engine.executeAction({ type: "addTag", tagId: tagId1 });
+      const rows = await db
+        .select()
+        .from(itemHistory)
+        .where(eq(itemHistory.itemId, bookmarkId));
+      expect(rows).toHaveLength(0);
     });
 
     it("should execute removeTag action", async () => {
