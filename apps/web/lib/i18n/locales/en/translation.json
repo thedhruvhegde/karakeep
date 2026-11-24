@@ -1481,6 +1481,43 @@
         "avatar": "Avatar",
         "unknown": "Attachment"
       }
+    },
+    "history": {
+      "title": "History",
+      "none_yet": "No changes yet",
+      "load_failed": "Couldn't load the history",
+      "before": "Before",
+      "after": "After",
+      "empty_value": "Empty",
+      "yes": "Yes",
+      "no": "No",
+      "show_more": "Show more",
+      "show_less": "Show less",
+      "deleted_user": "Deleted user",
+      "sources": {
+        "rule": "Automation rule",
+        "ai": "AI",
+        "crawler": "Page crawler",
+        "extraction": "Text extraction"
+      },
+      "fields": {
+        "title": "Title",
+        "linkTitle": "Page title",
+        "url": "URL",
+        "description": "Description",
+        "author": "Author",
+        "publisher": "Publisher",
+        "datePublished": "Publication date",
+        "dateModified": "Modification date",
+        "createdAt": "Saved date",
+        "text": "Text",
+        "assetContent": "File text",
+        "summary": "Summary",
+        "tags": "Tags",
+        "note": "Note",
+        "favourited": "Favourite",
+        "archived": "Archived"
+      }
     }
   },
   "editor": {

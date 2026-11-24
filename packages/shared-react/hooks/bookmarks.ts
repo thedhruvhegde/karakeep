@@ -37,6 +37,9 @@ export function useCreateBookmark(
     api.bookmarks.createBookmark.mutationOptions({
       ...opts,
       onSuccess: (res, req, meta, context) => {
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         queryClient.invalidateQueries(api.bookmarks.getBookmarks.pathFilter());
         queryClient.invalidateQueries(
           api.bookmarks.searchBookmarks.pathFilter(),
@@ -60,6 +63,9 @@ export function useCreateBookmarkWithPostHook(
     api.bookmarks.createBookmark.mutationOptions({
       ...opts,
       onSuccess: async (res, req, meta, context) => {
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         queryClient.invalidateQueries(api.bookmarks.getBookmarks.pathFilter());
         queryClient.invalidateQueries(
           api.bookmarks.searchBookmarks.pathFilter(),
@@ -111,6 +117,9 @@ export function useUpdateBookmark(
     api.bookmarks.updateBookmark.mutationOptions({
       ...opts,
       onSuccess: (res, req, meta, context) => {
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         scheduleInvalidateQueries(
           queryClient,
           api.bookmarks.getBookmarks.pathFilter(),
@@ -140,6 +149,9 @@ export function useSummarizeBookmark(
     api.bookmarks.summarizeBookmark.mutationOptions({
       ...opts,
       onSuccess: (res, req, meta, context) => {
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         queryClient.invalidateQueries(api.bookmarks.getBookmarks.pathFilter());
         queryClient.invalidateQueries(
           api.bookmarks.searchBookmarks.pathFilter(),
@@ -200,6 +212,9 @@ export function useUpdateBookmarkTags(
     api.bookmarks.updateTags.mutationOptions({
       ...opts,
       onSuccess: (res, req, meta, context) => {
+        queryClient.invalidateQueries(
+          api.bookmarks.getBookmarkHistory.pathFilter(),
+        );
         queryClient.invalidateQueries(
           api.bookmarks.getBookmark.queryFilter({ bookmarkId: req.bookmarkId }),
         );

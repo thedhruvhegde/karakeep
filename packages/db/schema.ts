@@ -16,6 +16,12 @@ import type { ZApiKeyScope } from "@karakeep/shared/types/apiKeys";
 import { API_KEY_FULL_ACCESS_SCOPE } from "@karakeep/shared/types/apiKeys";
 import { BookmarkTypes } from "@karakeep/shared/types/bookmarks";
 import type { ZReaderViewReason } from "@karakeep/shared/types/bookmarks";
+import type {
+  ZHistoryField,
+  ZHistoryItemType,
+  ZHistorySource,
+  ZHistoryValue,
+} from "@karakeep/shared/types/itemHistory";
 
 function createdAtField(colName = "createdAt") {
   return integer(colName, { mode: "timestamp" })
@@ -413,6 +419,51 @@ export const assets = sqliteTable(
       tb.assetType,
       tb.bookmarkId,
     ),
+  ],
+);
+
+/**
+ * One row per changed field. See docs/change-history.md.
+ */
+export const itemHistory = sqliteTable(
+  "itemHistory",
+  {
+    id: text("id")
+      .notNull()
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    itemType: text("itemType").$type<ZHistoryItemType>().notNull(),
+    // Can point at different tables depending on itemType, so it has no foreign
+    // key. Whatever deletes an item has to delete its history too.
+    itemId: text("itemId").notNull(),
+    // The item's owner. Cascades so that deleting a user, which cascades to
+    // their items, doesn't leave history behind.
+    ownerId: text("ownerId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Shared by all the fields changed in one save
+    changeId: text("changeId").notNull(),
+    fieldName: text("fieldName").$type<ZHistoryField>().notNull(),
+    // JSON encoded. SQL NULL means the field was empty.
+    oldValue: text("oldValue", { mode: "json" }).$type<ZHistoryValue>(),
+    newValue: text("newValue", { mode: "json" }).$type<ZHistoryValue>(),
+    source: text("source").$type<ZHistorySource>().notNull(),
+    // Null for automated changes
+    changedBy: text("changedBy").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // Milliseconds, so that saves made within the same second stay ordered
+    changedAt: integer("changedAt", { mode: "timestamp_ms" }).notNull(),
+  },
+  (tb) => [
+    index("itemHistory_item_changedAt_id_idx").on(
+      tb.itemType,
+      tb.itemId,
+      tb.changedAt,
+      tb.id,
+    ),
+    index("itemHistory_ownerId_idx").on(tb.ownerId),
+    index("itemHistory_changedBy_idx").on(tb.changedBy),
   ],
 );
 

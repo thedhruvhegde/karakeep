@@ -2,6 +2,7 @@ import { experimental_trpcMiddleware, TRPCError } from "@trpc/server";
 import { and, eq, gt, inArray, like, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
+import type { KarakeepDBTransaction } from "@karakeep/db";
 import {
   assets,
   AssetTypes,
@@ -61,12 +62,20 @@ import {
   zSearchBookmarksRequestSchema,
   zUpdateBookmarksRequestSchema,
 } from "@karakeep/shared/types/bookmarks";
+import {
+  zGetBookmarkHistoryRequestSchema,
+  zGetBookmarkHistoryResponseSchema,
+} from "@karakeep/shared/types/itemHistory";
 import type { ZBookmarkTags } from "@karakeep/shared/types/tags";
 import { ANCHOR_TEXT_MAX_LENGTH } from "@karakeep/shared/utils/reading-progress-dom";
 import { normalizeTagName } from "@karakeep/shared/utils/tag";
 import { getVectorStoreClient } from "@karakeep/shared/vectorStore";
 import type { VectorFilterQuery } from "@karakeep/shared/vectorStore";
 import { bookmarkCreationCounter } from "../stats";
+import {
+  getBookmarkHistory,
+  trackBookmarkChanges,
+} from "../models/itemHistory";
 
 import type { AuthedContext } from "../index";
 import {
@@ -299,15 +308,27 @@ export const bookmarksAppRouter = router({
             ...(input.note !== undefined ? { note: input.note } : {}),
             ...(input.summary !== undefined ? { summary: input.summary } : {}),
           };
-          await ctx.db
-            .update(bookmarks)
-            .set({ ...resaved, modifiedAt: now })
-            .where(
-              and(
-                eq(bookmarks.userId, ctx.user.id),
-                eq(bookmarks.id, alreadyExists.id),
-              ),
-            );
+          ctx.db.transaction(
+            (tx) => {
+              trackBookmarkChanges(
+                tx,
+                alreadyExists.id,
+                { source: "user", changedBy: ctx.user.id },
+                () =>
+                  tx
+                    .update(bookmarks)
+                    .set({ ...resaved, modifiedAt: now })
+                    .where(
+                      and(
+                        eq(bookmarks.userId, ctx.user.id),
+                        eq(bookmarks.id, alreadyExists.id),
+                      ),
+                    )
+                    .run(),
+              );
+            },
+            { behavior: "immediate" },
+          );
           await Promise.all([
             triggerSearchReindex(alreadyExists.id, {
               groupId: ctx.user.id,
@@ -583,7 +604,7 @@ export const bookmarksAppRouter = router({
     .output(zBookmarkSchema)
     .use(ensureBookmarkOwnership)
     .mutation(async ({ input, ctx }) => {
-      await ctx.db.transaction((tx) => {
+      const applyUpdates = (tx: KarakeepDBTransaction) => {
         let somethingChanged = false;
 
         // Update link-specific fields if any are provided
@@ -710,7 +731,20 @@ export const bookmarksAppRouter = router({
             )
             .run();
         }
-      });
+      };
+      // The history is written in the same transaction, so a rejected update
+      // leaves neither behind. It reads before writing, hence "immediate".
+      ctx.db.transaction(
+        (tx) => {
+          trackBookmarkChanges(
+            tx,
+            input.bookmarkId,
+            { source: "user", changedBy: ctx.user.id },
+            () => applyUpdates(tx),
+          );
+        },
+        { behavior: "immediate" },
+      );
 
       // Refetch the updated bookmark data to return the full object
       const updatedBookmark = (
@@ -779,7 +813,7 @@ export const bookmarksAppRouter = router({
     )
     .use(ensureBookmarkOwnership)
     .mutation(async ({ input, ctx }) => {
-      await ctx.db.transaction((tx) => {
+      const applyText = (tx: KarakeepDBTransaction) => {
         const res = tx
           .update(bookmarkTexts)
           .set({
@@ -803,7 +837,18 @@ export const bookmarksAppRouter = router({
             ),
           )
           .run();
-      });
+      };
+      ctx.db.transaction(
+        (tx) => {
+          trackBookmarkChanges(
+            tx,
+            input.bookmarkId,
+            { source: "user", changedBy: ctx.user.id },
+            () => applyText(tx),
+          );
+        },
+        { behavior: "immediate" },
+      );
       await Promise.all([
         triggerSearchReindex(input.bookmarkId, {
           groupId: ctx.user.id,
@@ -1026,6 +1071,18 @@ export const bookmarksAppRouter = router({
       return (
         await Bookmark.fromId(ctx, input.bookmarkId, input.includeContent)
       ).asZBookmark();
+    }),
+  getBookmarkHistory: bookmarksProcedure
+    .input(zGetBookmarkHistoryRequestSchema)
+    .output(zGetBookmarkHistoryResponseSchema)
+    // Anyone who can view the bookmark can read its history. What each of them
+    // sees depends on whether they own it.
+    .use(ensureBookmarkAccess)
+    .query(async ({ input, ctx }) => {
+      return await getBookmarkHistory(ctx.db, {
+        ...input,
+        isOwner: ctx.bookmark.userId === ctx.user.id,
+      });
     }),
   getBookmarkReadableContent: bookmarksProcedure
     .use(createBookmarksQueriedMiddleware())
@@ -1456,7 +1513,7 @@ export const bookmarksAppRouter = router({
       const allIdsToAttach = attachTagsWithNames.map((t) => t.id);
       const idsToRemove = detachTagsWithNames.map((t) => t.id);
 
-      const res = await ctx.db.transaction((tx) => {
+      const applyTagChanges = (tx: KarakeepDBTransaction) => {
         let numChanges = 0;
         // Detaches
         if (idsToRemove.length > 0) {
@@ -1507,7 +1564,17 @@ export const bookmarksAppRouter = router({
           detached: idsToRemove,
           numChanges,
         };
-      });
+      };
+      const res = ctx.db.transaction(
+        (tx) =>
+          trackBookmarkChanges(
+            tx,
+            input.bookmarkId,
+            { source: "user", changedBy: ctx.user.id },
+            () => applyTagChanges(tx),
+          ),
+        { behavior: "immediate" },
+      );
 
       if (res.numChanges > 0) {
         await Promise.allSettled([
@@ -1734,13 +1801,27 @@ export const bookmarksAppRouter = router({
         "inference.total_tokens": summary.totalTokens,
       });
 
-      await ctx.db
-        .update(bookmarks)
-        .set({
-          summary: summary.response,
-          summarizationStatus: "success",
-        })
-        .where(eq(bookmarks.id, input.bookmarkId));
+      const newSummary = summary.response;
+      ctx.db.transaction(
+        (tx) => {
+          trackBookmarkChanges(
+            tx,
+            input.bookmarkId,
+            // Requested by the user, even though a model writes the text
+            { source: "user", changedBy: ctx.user.id },
+            () =>
+              tx
+                .update(bookmarks)
+                .set({
+                  summary: newSummary,
+                  summarizationStatus: "success",
+                })
+                .where(eq(bookmarks.id, input.bookmarkId))
+                .run(),
+          );
+        },
+        { behavior: "immediate" },
+      );
       await Promise.all([
         triggerSearchReindex(input.bookmarkId, {
           groupId: ctx.user.id,

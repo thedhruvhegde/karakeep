@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { and, eq } from "drizzle-orm";
 
-import { db as globalDb, DB } from "@karakeep/db";
+import { db as globalDb, DB, KarakeepDBTransaction } from "@karakeep/db";
 import {
   bookmarks,
   ruleEngineRulesTable,
@@ -24,6 +24,7 @@ import {
 } from "@karakeep/shared/types/rules";
 
 import { AuthedContext } from "..";
+import { trackBookmarkChanges } from "../models/itemHistory";
 import { List } from "../models/lists";
 import { RuleEngineRuleModel } from "../models/rules";
 
@@ -265,30 +266,51 @@ export class RuleEngine {
     });
   }
 
+  /** Runs a rule's write, recording what it changed in the history. */
+  private writeTracked(write: (tx: KarakeepDBTransaction) => void) {
+    this.ctx.db.transaction(
+      (tx) => {
+        trackBookmarkChanges(
+          tx,
+          this.bookmark.id,
+          { source: "rule", changedBy: null },
+          () => write(tx),
+        );
+      },
+      { behavior: "immediate" },
+    );
+  }
+
   async executeAction(action: RuleEngineAction): Promise<string> {
     switch (action.type) {
       case "addTag": {
-        await this.ctx.db
-          .insert(tagsOnBookmarks)
-          .values([
-            {
-              attachedBy: "human",
-              bookmarkId: this.bookmark.id,
-              tagId: action.tagId,
-            },
-          ])
-          .onConflictDoNothing();
+        this.writeTracked((tx) =>
+          tx
+            .insert(tagsOnBookmarks)
+            .values([
+              {
+                attachedBy: "human",
+                bookmarkId: this.bookmark.id,
+                tagId: action.tagId,
+              },
+            ])
+            .onConflictDoNothing()
+            .run(),
+        );
         return `Added tag ${action.tagId}`;
       }
       case "removeTag": {
-        await this.ctx.db
-          .delete(tagsOnBookmarks)
-          .where(
-            and(
-              eq(tagsOnBookmarks.tagId, action.tagId),
-              eq(tagsOnBookmarks.bookmarkId, this.bookmark.id),
-            ),
-          );
+        this.writeTracked((tx) =>
+          tx
+            .delete(tagsOnBookmarks)
+            .where(
+              and(
+                eq(tagsOnBookmarks.tagId, action.tagId),
+                eq(tagsOnBookmarks.bookmarkId, this.bookmark.id),
+              ),
+            )
+            .run(),
+        );
         return `Removed tag ${action.tagId}`;
       }
       case "addToList": {
@@ -315,21 +337,27 @@ export class RuleEngine {
         return `Enqueued full page archive`;
       }
       case "favouriteBookmark": {
-        await this.ctx.db
-          .update(bookmarks)
-          .set({
-            favourited: true,
-          })
-          .where(eq(bookmarks.id, this.bookmark.id));
+        this.writeTracked((tx) =>
+          tx
+            .update(bookmarks)
+            .set({
+              favourited: true,
+            })
+            .where(eq(bookmarks.id, this.bookmark.id))
+            .run(),
+        );
         return `Marked as favourited`;
       }
       case "archiveBookmark": {
-        await this.ctx.db
-          .update(bookmarks)
-          .set({
-            archived: true,
-          })
-          .where(eq(bookmarks.id, this.bookmark.id));
+        this.writeTracked((tx) =>
+          tx
+            .update(bookmarks)
+            .set({
+              archived: true,
+            })
+            .where(eq(bookmarks.id, this.bookmark.id))
+            .run(),
+        );
         return `Marked as archived`;
       }
       default: {

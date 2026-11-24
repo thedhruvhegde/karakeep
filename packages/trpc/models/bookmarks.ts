@@ -66,6 +66,7 @@ import { mapDBAssetTypeToUserType } from "../lib/attachments";
 import { getPreferredLinkPreview } from "../lib/linkPreview";
 import { Asset } from "./assets";
 import { List } from "./lists";
+import { deleteBookmarkHistory } from "./itemHistory";
 
 async function dummyDrizzleReturnType() {
   const x = await DONT_USE_db.query.bookmarks.findFirst({
@@ -1052,14 +1053,22 @@ export class Bookmark extends BareBookmark {
 
   async delete() {
     this.ensureOwnership();
-    const deleted = await this.ctx.db
-      .delete(bookmarks)
-      .where(
-        and(
-          eq(bookmarks.userId, this.ctx.user.id),
-          eq(bookmarks.id, this.bookmark.id),
-        ),
-      );
+    const deleted = this.ctx.db.transaction((tx) => {
+      const res = tx
+        .delete(bookmarks)
+        .where(
+          and(
+            eq(bookmarks.userId, this.ctx.user.id),
+            eq(bookmarks.id, this.bookmark.id),
+          ),
+        )
+        .run();
+      // History has no foreign key to the bookmark, so nothing cascades.
+      if (res.changes > 0) {
+        deleteBookmarkHistory(tx, this.bookmark.id);
+      }
+      return res;
+    });
 
     await SearchIndexingQueue.enqueue(
       {
